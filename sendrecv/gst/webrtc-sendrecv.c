@@ -45,6 +45,7 @@ static SoupWebsocketConnection *ws_conn = NULL;
 static enum AppState app_state = 0;
 static const gchar *peer_id = NULL;
 static const gchar *server_url = "wss://webrtc.nirbheek.in:8443";
+static gboolean strict_ssl = TRUE;
 
 static GOptionEntry entries[] =
 {
@@ -116,6 +117,8 @@ handle_media_stream (GstPad * pad, GstElement * pipe, const char * convert_name,
   g_assert_nonnull (sink);
 
   if (g_strcmp0 (convert_name, "audioconvert") == 0) {
+    /* Might also need to resample, so add it just in case.
+     * Will be a no-op if it's not required. */
     resample = gst_element_factory_make ("audioresample", NULL);
     g_assert_nonnull (resample);
     gst_bin_add_many (GST_BIN (pipe), q, conv, resample, sink, NULL);
@@ -284,9 +287,9 @@ start_pipeline (void)
 
   pipe1 =
       gst_parse_launch ("webrtcbin name=sendrecv " STUN_SERVER
-      "videotestsrc pattern=ball ! queue ! vp8enc deadline=1 ! rtpvp8pay ! "
+      "videotestsrc pattern=ball ! videoconvert ! queue ! vp8enc deadline=1 ! rtpvp8pay ! "
       "queue ! " RTP_CAPS_VP8 "96 ! sendrecv. "
-      "audiotestsrc wave=red-noise ! queue ! opusenc ! rtpopuspay ! "
+      "audiotestsrc wave=red-noise ! audioconvert ! audioresample ! queue ! opusenc ! rtpopuspay ! "
       "queue ! " RTP_CAPS_OPUS "97 ! sendrecv. ",
       &error);
 
@@ -574,7 +577,7 @@ connect_to_websocket_server_async (void)
   SoupSession *session;
   const char *https_aliases[] = {"wss", NULL};
 
-  session = soup_session_new_with_options (SOUP_SESSION_SSL_STRICT, TRUE,
+  session = soup_session_new_with_options (SOUP_SESSION_SSL_STRICT, strict_ssl,
       SOUP_SESSION_SSL_USE_SYSTEM_CA_FILE, TRUE,
       //SOUP_SESSION_SSL_CA_FILE, "/etc/ssl/certs/ca-bundle.crt",
       SOUP_SESSION_HTTPS_ALIASES, https_aliases, NULL);
@@ -639,16 +642,28 @@ main (int argc, char *argv[])
     return -1;
   }
 
+  /* Don't use strict ssl when running a localhost server, because
+   * it's probably a test server with a self-signed certificate */
+  {
+    GstUri *uri = gst_uri_from_string (server_url);
+    if (g_strcmp0 ("localhost", gst_uri_get_host (uri)) == 0 ||
+        g_strcmp0 ("127.0.0.1", gst_uri_get_host (uri)) == 0)
+      strict_ssl = FALSE;
+    gst_uri_unref (uri);
+  }
+
   loop = g_main_loop_new (NULL, FALSE);
 
   connect_to_websocket_server_async ();
 
   g_main_loop_run (loop);
+  g_main_loop_unref (loop);
 
-  gst_element_set_state (GST_ELEMENT (pipe1), GST_STATE_NULL);
-  g_print ("Pipeline stopped\n");
-
-  gst_object_unref (pipe1);
+  if (pipe1) {
+    gst_element_set_state (GST_ELEMENT (pipe1), GST_STATE_NULL);
+    g_print ("Pipeline stopped\n");
+    gst_object_unref (pipe1);
+  }
 
   return 0;
 }

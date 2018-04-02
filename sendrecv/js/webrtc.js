@@ -7,14 +7,22 @@
  * Author: Nirbheek Chauhan <nirbheek@centricular.com>
  */
 
-var connect_attempts = 0;
-
-var peer_connection = null;
+// Set this to override the automatic detection in websocketServerConnect()
+var ws_server;
+var ws_port;
+// Set this to use a specific peer id instead of a random one
+var default_peer_id;
+// Override with your own STUN servers if you want
 var rtc_configuration = {iceServers: [{urls: "stun:stun.services.mozilla.com"},
                                       {urls: "stun:stun.l.google.com:19302"}]};
+// The default constraints that will be attempted. Can be overriden by the user.
+var default_constraints = {video: true, audio: true};
+
+var connect_attempts = 0;
+var peer_connection;
 var ws_conn;
-var local_stream;
-var peer_id;
+// Promise for local stream after constraints are approved by the user
+var local_stream_promise;
 
 function getOurId() {
     return Math.floor(Math.random() * (9000 - 10) + 10).toString();
@@ -26,7 +34,7 @@ function resetState() {
 }
 
 function handleIncomingError(error) {
-    setStatus("ERROR: " + error);
+    setError("ERROR: " + error);
     resetState();
 }
 
@@ -36,10 +44,25 @@ function getVideoElement() {
 
 function setStatus(text) {
     console.log(text);
-    document.getElementById("status").textContent = text;
+    var span = document.getElementById("status")
+    // Don't set the status if it already contains an error
+    if (!span.classList.contains('error'))
+        span.textContent = text;
 }
 
-function resetVideoElement() {
+function setError(text) {
+    console.error(text);
+    var span = document.getElementById("status")
+    span.textContent = text;
+    span.classList.add('error');
+}
+
+function resetVideo() {
+    // Release the webcam and mic
+    if (local_stream_promise)
+        local_stream_promise.then(stream => { stream.stop(); });
+
+    // Reset the video element and stop showing the last received frame
     var videoElement = getVideoElement();
     videoElement.pause();
     videoElement.src = "";
@@ -48,14 +71,17 @@ function resetVideoElement() {
 
 // SDP offer received from peer, set remote description and create an answer
 function onIncomingSDP(sdp) {
-    console.log("Incoming SDP is "+ JSON.stringify(sdp));
     peer_connection.setRemoteDescription(sdp).then(() => {
         setStatus("Remote SDP set");
         if (sdp.type != "offer")
             return;
-        setStatus("Got SDP offer, creating answer");
-        peer_connection.createAnswer().then(onLocalDescription).catch(setStatus);
-    }).catch(setStatus);
+        setStatus("Got SDP offer");
+        local_stream_promise.then((stream) => {
+            setStatus("Got local stream, creating answer");
+            peer_connection.createAnswer()
+            .then(onLocalDescription).catch(setError);
+        }).catch(setError);
+    }).catch(setError);
 }
 
 // Local description was set, send it to peer
@@ -70,9 +96,8 @@ function onLocalDescription(desc) {
 
 // ICE candidate received from peer, add it to the peer connection
 function onIncomingICE(ice) {
-    console.log("Incoming ICE: " + JSON.stringify(ice));
     var candidate = new RTCIceCandidate(ice);
-    peer_connection.addIceCandidate(candidate).catch(setStatus);
+    peer_connection.addIceCandidate(candidate).catch(setError);
 }
 
 function onServerMessage(event) {
@@ -99,7 +124,7 @@ function onServerMessage(event) {
             }
 
             // Incoming JSON signals the beginning of a call
-            if (peer_connection == null)
+            if (!peer_connection)
                 createCall(msg);
 
             if (msg.sdp != null) {
@@ -113,9 +138,10 @@ function onServerMessage(event) {
 }
 
 function onServerClose(event) {
-    resetVideoElement();
+    setStatus('Disconnected from server');
+    resetVideo();
 
-    if (peer_connection != null) {
+    if (peer_connection) {
         peer_connection.close();
         peer_connection = null;
     }
@@ -125,28 +151,58 @@ function onServerClose(event) {
 }
 
 function onServerError(event) {
-    setStatus("Unable to connect to server, did you add an exception for the certificate?")
+    setError("Unable to connect to server, did you add an exception for the certificate?")
     // Retry after 3 seconds
     window.setTimeout(websocketServerConnect, 3000);
+}
+
+function getLocalStream() {
+    var constraints;
+    var textarea = document.getElementById('constraints');
+    try {
+        constraints = JSON.parse(textarea.value);
+    } catch (e) {
+        console.error(e);
+        setError('ERROR parsing constraints: ' + e.message + ', using default constraints');
+        constraints = default_constraints;
+    }
+    console.log(JSON.stringify(constraints));
+
+    // Add local stream
+    if (navigator.mediaDevices.getUserMedia) {
+        return navigator.mediaDevices.getUserMedia(constraints);
+    } else {
+        errorUserMediaHandler();
+    }
 }
 
 function websocketServerConnect() {
     connect_attempts++;
     if (connect_attempts > 3) {
-        setStatus("Too many connection attempts, aborting. Refresh page to try again");
+        setError("Too many connection attempts, aborting. Refresh page to try again");
         return;
     }
-    peer_id = getOurId();
-    setStatus("Connecting to server");
-    loc = null;
+    // Clear errors in the status span
+    var span = document.getElementById("status");
+    span.classList.remove('error');
+    span.textContent = '';
+    // Populate constraints
+    var textarea = document.getElementById('constraints');
+    if (textarea.value == '')
+        textarea.value = JSON.stringify(default_constraints);
+    // Fetch the peer id to use
+    peer_id = default_peer_id || getOurId();
+    ws_port = ws_port || '8443';
     if (window.location.protocol.startsWith ("file")) {
-        loc = "127.0.0.1";
+        ws_server = ws_server || "127.0.0.1";
     } else if (window.location.protocol.startsWith ("http")) {
-        loc = window.location.hostname;
+        ws_server = ws_server || window.location.hostname;
     } else {
         throw new Error ("Don't know how to connect to the signalling server with uri" + window.location);
     }
-    ws_conn = new WebSocket('wss://' + loc + ':8443');
+    var ws_url = 'wss://' + ws_server + ':' + ws_port
+    setStatus("Connecting to server " + ws_url);
+    ws_conn = new WebSocket(ws_url);
     /* When connected, immediately register with the server */
     ws_conn.addEventListener('open', (event) => {
         document.getElementById("peer-id").textContent = peer_id;
@@ -156,17 +212,6 @@ function websocketServerConnect() {
     ws_conn.addEventListener('error', onServerError);
     ws_conn.addEventListener('message', onServerMessage);
     ws_conn.addEventListener('close', onServerClose);
-
-    var constraints = {video: true, audio: true};
-
-    // Add local stream
-    if (navigator.mediaDevices.getUserMedia) {
-        navigator.mediaDevices.getUserMedia(constraints)
-            .then((stream) => { local_stream = stream })
-            .catch(errorUserMediaHandler);
-    } else {
-        errorUserMediaHandler();
-    }
 }
 
 function onRemoteStreamAdded(event) {
@@ -182,17 +227,23 @@ function onRemoteStreamAdded(event) {
 }
 
 function errorUserMediaHandler() {
-    setStatus("Browser doesn't support getUserMedia!");
+    setError("Browser doesn't support getUserMedia!");
 }
 
 function createCall(msg) {
     // Reset connection attempts because we connected successfully
     connect_attempts = 0;
 
+    console.log('Creating RTCPeerConnection');
+
     peer_connection = new RTCPeerConnection(rtc_configuration);
     peer_connection.onaddstream = onRemoteStreamAdded;
     /* Send our video/audio to the other peer */
-    peer_connection.addStream(local_stream);
+    local_stream_promise = getLocalStream().then((stream) => {
+        console.log('Adding local stream');
+        peer_connection.addStream(stream);
+        return stream;
+    }).catch(setError);
 
     if (!msg.sdp) {
         console.log("WARNING: First message wasn't an SDP message!?");
