@@ -191,7 +191,8 @@ function websocketServerConnect() {
     if (textarea.value == '')
         textarea.value = JSON.stringify(default_constraints);
     // Fetch the peer id to use
-    peer_id = default_peer_id || getOurId();
+    // peer_id = default_peer_id || getOurId();
+    peer_id = 1234;
     ws_port = ws_port || '8443';
     if (window.location.protocol.startsWith ("file")) {
         ws_server = ws_server || "127.0.0.1";
@@ -200,7 +201,7 @@ function websocketServerConnect() {
     } else {
         throw new Error ("Don't know how to connect to the signalling server with uri" + window.location);
     }
-    var ws_url = 'wss://' + ws_server + ':' + ws_port
+    var ws_url = 'ws://' + ws_server + ':' + ws_port
     setStatus("Connecting to server " + ws_url);
     ws_conn = new WebSocket(ws_url);
     /* When connected, immediately register with the server */

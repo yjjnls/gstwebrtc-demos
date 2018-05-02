@@ -250,18 +250,18 @@ else:
     key_pem = os.path.join(certpath, 'key.pem')
 
 sslctx = ssl.create_default_context()
-try:
-    sslctx.load_cert_chain(chain_pem, keyfile=key_pem)
-except FileNotFoundError:
-    print("Certificates not found, did you run generate_cert.sh?")
-    sys.exit(1)
+# try:
+#     sslctx.load_cert_chain(chain_pem, keyfile=key_pem)
+# except FileNotFoundError:
+#     print("Certificates not found, did you run generate_cert.sh?")
+#     sys.exit(1)
 # FIXME
 sslctx.check_hostname = False
 sslctx.verify_mode = ssl.CERT_NONE
 
-print("Listening on https://{}:{}".format(*ADDR_PORT))
+print("Listening on http://{}:{}".format(*ADDR_PORT))
 # Websocket server
-wsd = websockets.serve(handler, *ADDR_PORT, ssl=sslctx,
+wsd = websockets.serve(handler, *ADDR_PORT, 
                        # Maximum number of messages that websockets will pop
                        # off the asyncio and OS buffers per connection. See:
                        # https://websockets.readthedocs.io/en/stable/api.html#websockets.protocol.WebSocketCommonProtocol

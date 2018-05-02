@@ -44,7 +44,7 @@ static GstElement *pipe1, *webrtc1;
 static SoupWebsocketConnection *ws_conn = NULL;
 static enum AppState app_state = 0;
 static const gchar *peer_id = NULL;
-static const gchar *server_url = "wss://webrtc.nirbheek.in:8443";
+static const gchar *server_url = "ws://localhost:8443";
 static gboolean strict_ssl = TRUE;
 
 static GOptionEntry entries[] =
@@ -204,7 +204,7 @@ send_ice_candidate_message (GstElement * webrtc G_GNUC_UNUSED, guint mlineindex,
 
   soup_websocket_connection_send_text (ws_conn, text);
   g_free (text);
-  g_print("==========>send ice candidate!\n");
+//   g_print("==========>send ice candidate!\n");
 }
 
 static void
@@ -219,7 +219,7 @@ send_sdp_offer (GstWebRTCSessionDescription * offer)
   }
 
   text = gst_sdp_message_as_text (offer->sdp);
-  g_print ("==========>Sending offer:\n%s\n", text);
+//   g_print ("==========>Sending offer:\n%s\n", text);
 
   sdp = json_object_new ();
   json_object_set_string_member (sdp, "type", "offer");
@@ -277,7 +277,7 @@ on_negotiation_needed (GstElement * element, gpointer user_data)
 
 #define STUN_SERVER " stun-server=stun://stun.l.google.com:19302 "
 #define RTP_CAPS_OPUS "application/x-rtp,media=audio,encoding-name=OPUS,payload="
-#define RTP_CAPS_VP8 "application/x-rtp,media=video,encoding-name=VP8,payload="
+#define RTP_CAPS_VP8 "application/x-rtp,media=video,encoding-name=H264,payload="
 
 static gboolean
 start_pipeline (void)
@@ -287,7 +287,7 @@ start_pipeline (void)
 
   pipe1 =
       gst_parse_launch ("webrtcbin name=sendrecv " STUN_SERVER
-      "videotestsrc pattern=ball ! videoconvert ! queue ! vp8enc deadline=1 ! rtpvp8pay ! "
+      "rtspsrc location=rtsp://172.16.66.65/id=1 ! rtph264depay ! queue ! rtph264pay config-interval=-1 ! "
       "queue ! " RTP_CAPS_VP8 "96 ! sendrecv. "
       "audiotestsrc wave=red-noise ! audioconvert ! audioresample ! queue ! opusenc ! rtpopuspay ! "
       "queue ! " RTP_CAPS_OPUS "97 ! sendrecv. ",
@@ -455,6 +455,7 @@ on_server_message (SoupWebsocketConnection * conn, SoupWebsocketDataType type,
     cleanup_and_quit_loop (text, 0);
   /* Look for JSON messages containing SDP and ICE candidates */
   } else {
+    // g_print ("\n=========>text\n%s\n=========>text",text);
     JsonNode *root;
     JsonObject *object, *child;
     JsonParser *parser = json_parser_new ();
@@ -497,7 +498,7 @@ on_server_message (SoupWebsocketConnection * conn, SoupWebsocketDataType type,
 
       text = json_object_get_string_member (child, "sdp");
 
-      g_print ("==========>Received answer:\n%s\n", text);
+    //   g_print ("==========>Received answer:\n%s\n", text);
 
       ret = gst_sdp_message_new (&sdp);
       g_assert_cmphex (ret, ==, GST_SDP_OK);
@@ -520,7 +521,7 @@ on_server_message (SoupWebsocketConnection * conn, SoupWebsocketDataType type,
 
       app_state = PEER_CALL_STARTED;
     } else if (json_object_has_member (object, "ice")) {
-      g_print ("==========>Received ice\n");
+    //   g_print ("==========>Received ice\n");
       const gchar *candidate;
       gint sdpmlineindex;
 
