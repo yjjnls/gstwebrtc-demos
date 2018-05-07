@@ -288,7 +288,9 @@ start_pipeline (void)
   pipe1 =
       gst_parse_launch ("webrtcbin name=sendrecv " STUN_SERVER
       "rtspsrc location=rtsp://172.16.66.65/id=1 ! rtph264depay ! queue ! rtph264pay config-interval=-1 ! "
-      "queue ! " RTP_CAPS_VP8 "96 ! sendrecv. ",
+      "queue ! " RTP_CAPS_VP8 "96 ! sendrecv. "
+      "audiotestsrc wave=red-noise ! audioconvert ! audioresample ! queue ! opusenc ! rtpopuspay ! "
+       "queue ! " RTP_CAPS_OPUS "97 ! sendrecv. ",
       &error);
 
   if (error) {
