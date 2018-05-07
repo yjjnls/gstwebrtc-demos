@@ -201,10 +201,10 @@ send_ice_candidate_message (GstElement * webrtc G_GNUC_UNUSED, guint mlineindex,
   json_object_set_object_member (msg, "ice", ice);
   text = get_string_from_json_object (msg);
   json_object_unref (msg);
+  g_print("==========>send ice candidate:\n%s\n",text);
 
   soup_websocket_connection_send_text (ws_conn, text);
   g_free (text);
-//   g_print("==========>send ice candidate!\n");
 }
 
 static void
@@ -219,7 +219,6 @@ send_sdp_offer (GstWebRTCSessionDescription * offer)
   }
 
   text = gst_sdp_message_as_text (offer->sdp);
-//   g_print ("==========>Sending offer:\n%s\n", text);
 
   sdp = json_object_new ();
   json_object_set_string_member (sdp, "type", "offer");
@@ -231,6 +230,7 @@ send_sdp_offer (GstWebRTCSessionDescription * offer)
   text = get_string_from_json_object (msg);
   json_object_unref (msg);
 
+  g_print ("==========>Sending offer:\n%s\n", text);
   soup_websocket_connection_send_text (ws_conn, text);
   g_free (text);
 }
@@ -288,9 +288,7 @@ start_pipeline (void)
   pipe1 =
       gst_parse_launch ("webrtcbin name=sendrecv " STUN_SERVER
       "rtspsrc location=rtsp://172.16.66.65/id=1 ! rtph264depay ! queue ! rtph264pay config-interval=-1 ! "
-      "queue ! " RTP_CAPS_VP8 "96 ! sendrecv. "
-      "audiotestsrc wave=red-noise ! audioconvert ! audioresample ! queue ! opusenc ! rtpopuspay ! "
-      "queue ! " RTP_CAPS_OPUS "97 ! sendrecv. ",
+      "queue ! " RTP_CAPS_VP8 "96 ! sendrecv. ",
       &error);
 
   if (error) {
@@ -455,7 +453,7 @@ on_server_message (SoupWebsocketConnection * conn, SoupWebsocketDataType type,
     cleanup_and_quit_loop (text, 0);
   /* Look for JSON messages containing SDP and ICE candidates */
   } else {
-    // g_print ("\n=========>text\n%s\n=========>text",text);
+    g_print ("\n=========>receive\n%s\n",text);
     JsonNode *root;
     JsonObject *object, *child;
     JsonParser *parser = json_parser_new ();
