@@ -44,6 +44,7 @@ static GstElement *pipe1, *webrtc1;
 static SoupWebsocketConnection *ws_conn = NULL;
 static enum AppState app_state = 0;
 static const gchar *peer_id = NULL;
+// static const gchar *server_url = "wss://webrtc.nirbheek.in:8443";
 static const gchar *server_url = "ws://localhost:8443";
 static gboolean strict_ssl = TRUE;
 
@@ -250,6 +251,9 @@ on_offer_created (GstPromise * promise, gpointer user_data)
   gst_structure_get (reply, "offer",
       GST_TYPE_WEBRTC_SESSION_DESCRIPTION, &offer, NULL);
   gst_promise_unref (promise);
+  gst_sdp_media_add_attribute((GstSDPMedia *)&g_array_index(offer->sdp->medias, GstSDPMedia, 0),
+                                "fmtp",
+                                "96 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f");
   gchar *desc;
   desc = gst_sdp_message_as_text (offer->sdp);
   g_print ("==========>Created offer:\n%s\n", desc);
@@ -276,7 +280,7 @@ on_negotiation_needed (GstElement * element, gpointer user_data)
 }
 
 #define STUN_SERVER " stun-server=stun://stun.l.google.com:19302 "
-#define RTP_CAPS_OPUS "application/x-rtp,media=audio,encoding-name=OPUS,payload="
+#define RTP_CAPS_OPUS "application/x-rtp,media=audio,encoding-name=PCMA,payload="
 #define RTP_CAPS_VP8 "application/x-rtp,media=video,encoding-name=H264,payload="
 
 static gboolean
@@ -287,10 +291,11 @@ start_pipeline (void)
 
   pipe1 =
       gst_parse_launch ("webrtcbin name=sendrecv " STUN_SERVER
-      "rtspsrc location=rtsp://172.16.66.65/id=1 ! rtph264depay ! queue ! rtph264pay config-interval=-1 ! "
+    //   "videotestsrc pattern=ball ! videoconvert ! queue ! vp8enc deadline=1 ! rtpvp8pay ! "
+      "videotestsrc pattern=ball ! videoconvert ! queue ! x264enc ! rtph264pay config-interval=-1 ! "
       "queue ! " RTP_CAPS_VP8 "96 ! sendrecv. "
-      "audiotestsrc wave=red-noise ! audioconvert ! audioresample ! queue ! opusenc ! rtpopuspay ! "
-       "queue ! " RTP_CAPS_OPUS "97 ! sendrecv. ",
+      "audiotestsrc wave=red-noise ! audioconvert ! audioresample ! queue ! alawenc ! rtppcmapay ! "
+       "queue ! " RTP_CAPS_OPUS "8 ! sendrecv. ",
       &error);
 
   if (error) {
@@ -521,7 +526,7 @@ on_server_message (SoupWebsocketConnection * conn, SoupWebsocketDataType type,
 
       app_state = PEER_CALL_STARTED;
     } else if (json_object_has_member (object, "ice")) {
-    //   g_print ("==========>Received ice\n");
+      g_print ("==========>Received ice\n");
       const gchar *candidate;
       gint sdpmlineindex;
 
